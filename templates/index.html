@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Soil Nearest Point Finder</title>
+</head>
+<body>
+
+<h2>Find Nearest Soil Point</h2>
+
+<button onclick="getLocation()">Get My Location</button>
+
+<div id="result"></div>
+
+<script>
+function getLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(sendPosition);
+    } else {
+        alert("Geolocation not supported");
+    }
+}
+
+function sendPosition(position) {
+
+    fetch("/predict_crop_lstm", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+
+        if (data.status === "out_of_region") {
+            document.getElementById("result").innerHTML =
+                "<h3 style='color:red;'>Out of Region</h3>" +
+                "<p>Distance: " + data.distance_km + " km</p>";
+            return;
+        }
+
+        if (data.status === "ok") {
+            const loc = data.input_location
+                ? ("<p><b>Location</b>: " + data.input_location.lat + ", " + data.input_location.lon + "</p>")
+                : "";
+
+            const nearest = (data.nearest_points && data.nearest_points.length)
+                ? ("<p><b>Nearest Auger ID</b>: " + data.auger_id + " (distance " + data.nearest_points[0].distance_km.toFixed(4) + " km)</p>")
+                : ("<p><b>Auger ID</b>: " + data.auger_id + "</p>");
+
+            const today = "<p><b>Today</b>: day " + data.today_day + ", month " + data.today_month + "</p>";
+            const usedDate = "<p><b>Date used</b>: " + data.date_used + " (anchor in dataset: " + data.lstm.anchor_date_used + ")</p>";
+
+            const crops = "<p><b>Recommended crops</b>: " + data.lstm.recommended_crops.join(", ") + "</p>";
+            const topCrop = data.lstm.recommended_crops[0];
+            const topScore = Number(data.lstm.scores[topCrop] || 0);
+            const confidence = "<p><b>Model confidence in #1 crop</b>: " + topCrop + " (" + (topScore * 100).toFixed(1) + "%)</p>";
+
+            // scores table (top 3 only)
+            let scoreTable = "<table border='1' cellpadding='5'><tr><th>Crop</th><th>Score</th></tr>";
+            data.lstm.recommended_crops.forEach((crop) => {
+                const score = data.lstm.scores[crop];
+                scoreTable += "<tr><td>" + crop + "</td><td>" + Number(score).toFixed(3) + "</td></tr>";
+            });
+            scoreTable += "</table>";
+
+            document.getElementById("result").innerHTML =
+                "<h3>LSTM Crop Recommendation</h3>" +
+                loc + nearest + today + usedDate + crops + confidence + scoreTable;
+        }
+
+        if (data.status === "error") {
+            document.getElementById("result").innerHTML =
+                "<p style='color:red;'>Error: " + data.message + "</p>";
+        }
+
+    })
+    .catch(error => {
+        document.getElementById("result").innerHTML =
+            "<p style='color:red;'>Server Error</p>";
+        console.log(error);
+    });
+}
+</script>
+
+</body>
+</html>

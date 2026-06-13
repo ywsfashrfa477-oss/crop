@@ -340,7 +340,7 @@ def predict_crop():
     try:
         data = request.get_json() or {}
         k = int(data.get("k", 3))
-        max_distance_km = float(data.get("max_distance_km", 15))
+        max_distance_km = float(data.get("max_distance_km", 200))  # ✅ raised default
 
         when_raw = data.get("date")
         if when_raw:
@@ -407,7 +407,7 @@ def predict_crop_lstm():
     try:
         data = request.get_json() or {}
         print(">>> Received data:", data)
-        max_distance_km = float(data.get("max_distance_km", 15))
+        max_distance_km = float(data.get("max_distance_km", 200))  # ✅ raised default
         print(">>> max_distance_km used:", max_distance_km)
 
         when_raw = data.get("date")
@@ -495,6 +495,23 @@ def force_test_9():
         "nearest_id": int(nearest_id),
         "distance_km": round(min_distance, 6),
         "soil_data": soil_info
+    })
+
+
+# ==========================
+# DEBUG FILES
+# ==========================
+
+@app.route("/debug_files")
+def debug_files():
+    import os
+    return jsonify({
+        "cwd": os.getcwd(),
+        "files": os.listdir("."),
+        "keras_exists": os.path.exists("final version model lstm.keras"),
+        "finalv_exists": os.path.exists("Final_v.csv"),
+        "points_exists": os.path.exists("points.csv"),
+        "analysis_exists": os.path.exists("Analysis_data.xlsx"),
     })
 
 

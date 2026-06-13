@@ -9,16 +9,9 @@ app = Flask(__name__)
 # LOAD DATA
 # ==========================
 
-# Load points (X|Y|id)
 points_df = pd.read_csv("points.csv", sep="|")
-
-# Load soil analysis data
 soil_df = pd.read_excel("Analysis_data.xlsx")
-
-# Clean column names (remove extra spaces)
 soil_df.columns = soil_df.columns.str.strip()
-
-# Ensure id columns are integers
 points_df["id"] = points_df["id"].astype(int)
 soil_df["id"] = soil_df["id"].astype(int)
 
@@ -31,15 +24,8 @@ final_v_df = pd.read_csv("Final_v.csv")
 final_v_df["Date"] = pd.to_datetime(final_v_df["Date"], format="mixed", errors="coerce")
 
 LSTM_SOIL_COLS = [
-    "pH",
-    "EC (ds/m)",
-    "Ca²⁺ (ppm)",
-    "Mg²⁺ (ppm)",
-    "Na⁺ (ppm)",
-    "K⁺ (ppm)",
-    "CaCO₃ (%)",
-    "ESP",
-    "Water_TDS (ppm)",
+    "pH", "EC (ds/m)", "Ca²⁺ (ppm)", "Mg²⁺ (ppm)", "Na⁺ (ppm)",
+    "K⁺ (ppm)", "CaCO₃ (%)", "ESP", "Water_TDS (ppm)",
 ]
 LSTM_CLIMATE_COLS = ["T2M", "RH", "WS", "SWGDN"]
 
@@ -53,7 +39,7 @@ LSTM_OUTPUT_CROPS = ["Barley", "Cotton", "Date Palm", "Olive", "Potato", "Wheat"
 _lstm_model = None
 
 
-def _minmax_scale_df(df: pd.DataFrame, mn: pd.Series, mx: pd.Series) -> pd.DataFrame:
+def _minmax_scale_df(df, mn, mx):
     return (df - mn) / (mx - mn + 1e-9)
 
 
@@ -65,7 +51,7 @@ def get_lstm_model():
     return _lstm_model
 
 
-def build_lstm_inputs_for_auger(auger_id: int, when: date, *, depth: str | None = None):
+def build_lstm_inputs_for_auger(auger_id, when, *, depth=None):
     auger_name = f"Auger {int(auger_id)}"
     target_dt = pd.to_datetime(when)
 
@@ -124,7 +110,7 @@ def build_lstm_inputs_for_auger(auger_id: int, when: date, *, depth: str | None 
     }
 
 
-def recommend_crop_lstm(auger_id: int, when: date, *, depth: str | None = None):
+def recommend_crop_lstm(auger_id, when, *, depth=None):
     built = build_lstm_inputs_for_auger(auger_id, when, depth=depth)
     if built is None:
         return None
@@ -170,13 +156,13 @@ def haversine(lat1, lon1, lat2, lon2):
 # NEAREST POINTS + SOIL AGG
 # ==========================
 
-def get_nearest_points(user_lat: float, user_lon: float, *, k: int = 3):
+def get_nearest_points(user_lat, user_lon, *, k=3):
     rows = []
     for _, row in points_df.iterrows():
         dist = haversine(user_lat, user_lon, row["Y"], row["X"])
         rows.append({"id": int(row["id"]), "distance_km": float(dist)})
     rows.sort(key=lambda r: r["distance_km"])
-    return rows[: max(1, int(k))]
+    return rows[:max(1, int(k))]
 
 
 def aggregate_soil_for_ids(ids):
@@ -199,7 +185,7 @@ def aggregate_soil_for_ids(ids):
 # CROP RECOMMENDATION (RULES)
 # ==========================
 
-def _season_from_month(m: int) -> str:
+def _season_from_month(m):
     if m in (11, 12, 1, 2, 3):
         return "winter"
     if m in (4, 5, 6, 7, 8):
@@ -207,7 +193,7 @@ def _season_from_month(m: int) -> str:
     return "autumn"
 
 
-def recommend_crop(soil: dict, when: date):
+def recommend_crop(soil, when):
     season = _season_from_month(int(when.month))
     ph = soil.get("pH")
     ec = soil.get("EC")
@@ -420,6 +406,9 @@ def predict_crop():
 def predict_crop_lstm():
     try:
         data = request.get_json() or {}
+        print(">>> Received data:", data)
+        max_distance_km = float(data.get("max_distance_km", 15))
+        print(">>> max_distance_km used:", max_distance_km)
 
         when_raw = data.get("date")
         when = datetime.strptime(str(when_raw), "%Y-%m-%d").date() if when_raw else date.today()
@@ -438,11 +427,13 @@ def predict_crop_lstm():
             resolved_from = "gps"
             user_lat = float(data["lat"])
             user_lon = float(data["lon"])
-            max_distance_km = float(data.get("max_distance_km", 15))
 
             nearest_points = get_nearest_points(user_lat, user_lon, k=1)
             if not nearest_points:
                 return jsonify({"status": "error", "message": "No points available."}), 500
+
+            print(f">>> Nearest point distance: {nearest_points[0]['distance_km']} km, limit: {max_distance_km} km")
+
             if nearest_points[0]["distance_km"] > max_distance_km:
                 return jsonify({
                     "status": "out_of_region",

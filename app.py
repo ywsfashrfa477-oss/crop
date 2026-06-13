@@ -340,7 +340,7 @@ def predict_crop():
     try:
         data = request.get_json() or {}
         k = int(data.get("k", 3))
-        max_distance_km = float(data.get("max_distance_km", 200))  # ✅ raised default
+        max_distance_km = float(data.get("max_distance_km", 200))
 
         when_raw = data.get("date")
         if when_raw:
@@ -407,7 +407,7 @@ def predict_crop_lstm():
     try:
         data = request.get_json() or {}
         print(">>> Received data:", data)
-        max_distance_km = float(data.get("max_distance_km", 200))  # ✅ raised default
+        max_distance_km = float(data.get("max_distance_km", 200))
         print(">>> max_distance_km used:", max_distance_km)
 
         when_raw = data.get("date")
@@ -513,6 +513,24 @@ def debug_files():
         "points_exists": os.path.exists("points.csv"),
         "analysis_exists": os.path.exists("Analysis_data.xlsx"),
     })
+
+
+# ==========================
+# TEST LSTM DIRECTLY
+# ==========================
+
+@app.route("/test_lstm")
+def test_lstm():
+    try:
+        rec = recommend_crop_lstm(7, date.today())
+        return jsonify({"status": "ok", "result": rec})
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "trace": traceback.format_exc()
+        })
 
 
 # ==========================

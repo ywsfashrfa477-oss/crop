@@ -47,6 +47,8 @@ def get_lstm_model():
     global _lstm_model
     if _lstm_model is None:
         import tensorflow as tf
+        from download_model import download
+        download()
         _lstm_model = tf.keras.models.load_model("final version model lstm.keras")
     return _lstm_model
 
@@ -509,6 +511,7 @@ def debug_files():
         "cwd": os.getcwd(),
         "files": os.listdir("."),
         "keras_exists": os.path.exists("final version model lstm.keras"),
+        "keras_size_mb": round(os.path.getsize("final version model lstm.keras") / 1024 / 1024, 2) if os.path.exists("final version model lstm.keras") else 0,
         "finalv_exists": os.path.exists("Final_v.csv"),
         "points_exists": os.path.exists("points.csv"),
         "analysis_exists": os.path.exists("Analysis_data.xlsx"),

@@ -27,7 +27,6 @@ soil_df["id"] = soil_df["id"].astype(int)
 # LOAD LSTM DATA/MODEL (ONCE)
 # ==========================
 
-# Final_v.csv is used to build the exact feature inputs that the saved LSTM expects.
 final_v_df = pd.read_csv("Final_v.csv")
 final_v_df["Date"] = pd.to_datetime(final_v_df["Date"], format="mixed", errors="coerce")
 
@@ -44,7 +43,6 @@ LSTM_SOIL_COLS = [
 ]
 LSTM_CLIMATE_COLS = ["T2M", "RH", "WS", "SWGDN"]
 
-# MinMax scaling (fitted from Final_v.csv) to match training-style preprocessing.
 _soil_min = final_v_df[LSTM_SOIL_COLS].min(numeric_only=True)
 _soil_max = final_v_df[LSTM_SOIL_COLS].max(numeric_only=True)
 _clim_min = final_v_df[LSTM_CLIMATE_COLS].min(numeric_only=True)
@@ -63,16 +61,11 @@ def get_lstm_model():
     global _lstm_model
     if _lstm_model is None:
         import tensorflow as tf
-
         _lstm_model = tf.keras.models.load_model("final version model lstm.keras")
     return _lstm_model
 
 
 def build_lstm_inputs_for_auger(auger_id: int, when: date, *, depth: str | None = None):
-    """
-    Builds (climate_input[1,7,4], soil_input[1,9]) for the saved model using Final_v.csv.
-    Seasonality is matched by month/day only (year is ignored).
-    """
     auger_name = f"Auger {int(auger_id)}"
     target_dt = pd.to_datetime(when)
 
@@ -81,7 +74,6 @@ def build_lstm_inputs_for_auger(auger_id: int, when: date, *, depth: str | None 
     if auger_rows.empty:
         return None
 
-    # If depth not specified (or missing), prefer the shallowest available depth.
     if depth is None or depth not in set(auger_rows["Depth (cm)"].astype(str).unique().tolist()):
         preferred_order = ["0-10", "0-30", "0-20", "0-15", "0-25", "0 - 10", "0 - 30"]
         available = [str(x) for x in auger_rows["Depth (cm)"].unique().tolist()]
@@ -97,17 +89,14 @@ def build_lstm_inputs_for_auger(auger_id: int, when: date, *, depth: str | None 
     if sub.empty:
         return None
 
-    # Match by month/day only (ignore year) so e.g. 2026-04-03 -> 2025-04-03 in dataset.
     target_mmdd = (int(target_dt.month), int(target_dt.day))
     mmdd = sub["Date"].apply(lambda d: (int(d.month), int(d.day)))
     exact = sub[mmdd == target_mmdd]
     if not exact.empty:
         anchor = exact.head(1)
     else:
-        # Fallback: closest day-of-year ignoring year.
         target_doy = int(target_dt.dayofyear)
         doy = sub["Date"].dt.dayofyear.astype(int)
-        # Circular distance across year boundary.
         delta = (doy - target_doy).abs()
         circ = pd.concat([delta, (365 - delta).abs()], axis=1).min(axis=1)
         anchor = sub.iloc[circ.argsort()[:1]]
@@ -143,7 +132,6 @@ def recommend_crop_lstm(auger_id: int, when: date, *, depth: str | None = None):
     model = get_lstm_model()
     pred = model.predict([built["climate_input"], built["soil_input"]], verbose=0)[0]
     raw_scores = {LSTM_OUTPUT_CROPS[i]: float(pred[i]) for i in range(len(LSTM_OUTPUT_CROPS))}
-    # Keep only top-3 crops by model score, then normalize those three to sum to 1.
     top3 = sorted(raw_scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
     selected = [c for c, _ in top3]
     top3_total = sum(s for _, s in top3)
@@ -167,16 +155,13 @@ def recommend_crop_lstm(auger_id: int, when: date, *, depth: str | None = None):
 # ==========================
 
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # Earth radius in km
-
+    R = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-
     a = (math.sin(dlat/2)**2 +
          math.cos(math.radians(lat1)) *
          math.cos(math.radians(lat2)) *
          math.sin(dlon/2)**2)
-
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
@@ -198,8 +183,6 @@ def aggregate_soil_for_ids(ids):
     subset = soil_df[soil_df["id"].isin([int(x) for x in ids])].copy()
     if subset.empty:
         return None
-
-    # Numeric columns: mean; non-numeric: most frequent (mode)
     agg = {}
     for col in subset.columns:
         if col == "id":
@@ -225,31 +208,18 @@ def _season_from_month(m: int) -> str:
 
 
 def recommend_crop(soil: dict, when: date):
-    """
-    Heuristic crop recommendation using soil + season.
-    Returns (crop_name, score_breakdown_dict).
-    """
     season = _season_from_month(int(when.month))
     ph = soil.get("pH")
     ec = soil.get("EC")
     texture = str(soil.get("Texture", "")).lower()
 
     crops = {
-        "Wheat": 0,
-        "Barley": 0,
-        "Maize": 0,
-        "Sorghum": 0,
-        "Cotton": 0,
-        "Peanut": 0,
-        "Potato": 0,
-        "Rice": 0,
-        "Vegetables": 0,
-        "Sugar beet": 0,
+        "Wheat": 0, "Barley": 0, "Maize": 0, "Sorghum": 0,
+        "Cotton": 0, "Peanut": 0, "Potato": 0, "Rice": 0,
+        "Vegetables": 0, "Sugar beet": 0,
     }
-
     why = {k: [] for k in crops.keys()}
 
-    # Season fit
     if season == "winter":
         for c in ("Wheat", "Barley", "Vegetables"):
             crops[c] += 2
@@ -263,7 +233,6 @@ def recommend_crop(soil: dict, when: date):
             crops[c] += 1
             why[c].append("fits autumn planting window")
 
-    # Salinity (EC) tolerance
     try:
         if ec is not None and float(ec) >= 4:
             for c in ("Barley", "Cotton", "Sugar beet", "Sorghum"):
@@ -280,7 +249,6 @@ def recommend_crop(soil: dict, when: date):
     except Exception:
         pass
 
-    # Alkalinity (pH) tolerance
     try:
         if ph is not None and float(ph) >= 8.8:
             for c in ("Barley", "Sorghum", "Cotton"):
@@ -299,7 +267,6 @@ def recommend_crop(soil: dict, when: date):
     except Exception:
         pass
 
-    # Texture fit
     if "sand" in texture and "loam" not in texture:
         for c in ("Peanut", "Potato", "Vegetables"):
             crops[c] += 2
@@ -343,7 +310,6 @@ def home():
 def nearest():
     try:
         data = request.get_json()
-
         user_lat = float(data["lat"])
         user_lon = float(data["lon"])
 
@@ -357,7 +323,6 @@ def nearest():
                 nearest_id = row["id"]
 
         MAX_DISTANCE_KM = 15
-
         if min_distance > MAX_DISTANCE_KM:
             return jsonify({
                 "status": "out_of_region",
@@ -376,10 +341,8 @@ def nearest():
         })
 
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        })
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()})
 
 
 # ==========================
@@ -390,7 +353,6 @@ def nearest():
 def predict_crop():
     try:
         data = request.get_json() or {}
-
         k = int(data.get("k", 3))
         max_distance_km = float(data.get("max_distance_km", 15))
 
@@ -443,9 +405,11 @@ def predict_crop():
         })
 
     except KeyError as e:
-        return jsonify({"status": "error", "message": f"Missing field: {str(e)}"}), 400
+        import traceback
+        return jsonify({"status": "error", "message": f"Missing field: {str(e)}", "trace": traceback.format_exc()}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
 
 
 # ==========================
@@ -507,9 +471,11 @@ def predict_crop_lstm():
         })
 
     except KeyError as e:
-        return jsonify({"status": "error", "message": f"Missing field: {str(e)}"}), 400
+        import traceback
+        return jsonify({"status": "error", "message": f"Missing field: {str(e)}", "trace": traceback.format_exc()}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
 
 
 # ==========================
@@ -518,7 +484,6 @@ def predict_crop_lstm():
 
 @app.route("/force_test_9")
 def force_test_9():
-
     user_lat = 30.8903666826398
     user_lon = 30.9031494475213
 

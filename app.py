@@ -158,7 +158,7 @@ def recommend_crop_lstm(auger_id: int, when: date, *, depth: str | None = None):
         "scores": scores,
         "anchor_date_used": built["anchor_date"],
         "depth_used": built["depth"],
-        "raw_soil_used": built["raw_soil"],
+        "raw_soil_used": {k: float(v) for k, v in built["raw_soil"].items()},
     }
 
 
@@ -388,36 +388,23 @@ def nearest():
 
 @app.route("/predict_crop", methods=["POST"])
 def predict_crop():
-    """
-    Input (JSON) supports either:
-    - {"auger_id": 9}  -> uses point(id=9) as location
-    - {"lat": 30.89, "lon": 30.90} -> uses GPS as location
-
-    Optional:
-    - "k": number of nearest points to blend (default 3)
-    - "max_distance_km": reject if nearest point farther than this (default 15)
-    - "date": "YYYY-MM-DD" (defaults to today's date)
-    """
     try:
         data = request.get_json() or {}
 
         k = int(data.get("k", 3))
         max_distance_km = float(data.get("max_distance_km", 15))
 
-        # Determine prediction date
         when_raw = data.get("date")
         if when_raw:
             when = datetime.strptime(str(when_raw), "%Y-%m-%d").date()
         else:
             when = date.today()
 
-        # Resolve location
         if "auger_id" in data or "id" in data:
             auger_id = int(data.get("auger_id", data.get("id")))
             point_row = points_df[points_df["id"] == auger_id]
             if point_row.empty:
                 return jsonify({"status": "error", "message": f"Unknown auger_id/id: {auger_id}"}), 400
-            # points.csv stores X=lon, Y=lat
             user_lon = float(point_row.iloc[0]["X"])
             user_lat = float(point_row.iloc[0]["Y"])
             resolved_from = "auger_id"
@@ -467,16 +454,6 @@ def predict_crop():
 
 @app.route("/predict_crop_lstm", methods=["POST"])
 def predict_crop_lstm():
-    """
-    Input (JSON) supports either:
-    - {"lat": ..., "lon": ...}  (browser GPS)
-    - {"auger_id": 9}          (direct)
-
-    Optional:
-    - "date": "YYYY-MM-DD" (defaults to today)
-    - "depth": e.g. "0-30" (defaults to shallowest available in Final_v.csv for that auger)
-    - "max_distance_km": float (default 15) when using GPS
-    """
     try:
         data = request.get_json() or {}
 
@@ -542,7 +519,6 @@ def predict_crop_lstm():
 @app.route("/force_test_9")
 def force_test_9():
 
-    # Exact coordinates of point 9
     user_lat = 30.8903666826398
     user_lon = 30.9031494475213
 
